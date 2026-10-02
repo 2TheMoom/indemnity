@@ -1,0 +1,181 @@
+# Indemnity
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/license/mit/)
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8Jm4v89VAu)
+[![Telegram](https://img.shields.io/badge/Telegram--T.svg?style=social&logo=telegram)](https://t.me/genlayer)
+[![Twitter](https://img.shields.io/twitter/url/https/twitter.com/yeagerai.svg?style=social&label=Follow%20%40GenLayer)](https://x.com/GenLayer)
+
+## About
+Indemnity is a **parametric insurance exchange**. A creator defines a
+trigger against 2-5 independent sources and a JSON path pulled from each -
+reusing [Concord](https://github.com/2TheMoom/concord)'s own N-of-M
+equivalence oracle directly: numeric readings cluster by a tolerance in
+basis points, strings by exact match, and the largest cluster wins only if
+enough sources agree. Underwriters stake GEN against that trigger up to a
+target cap; policyholders pay a premium (a percentage of the coverage
+amount) to buy coverage, capped at however much capital is actually
+underwritten so a claim is always fully payable. No LLM on the common
+path.
+
+`check_trigger(product_id)` - once the product's underwriting window has
+closed - runs the consensus check; a quorum miss or an unmet comparison
+reverts cleanly and can be retried. A trigger isn't the same as being
+right, so an underwriter (the party who loses capital if it stands) gets a
+10-minute window to dispute it with a reason; only a genuine dispute
+escalates to `gl.nondet.exec_prompt`, re-fetching all sources and weighing
+the objection against them, and only the verdict is consensus-critical.
+`resolve_stale_dispute(product_id)` is the backstop for a dispute nobody
+resolves: it settles at the *pre-dispute* trigger standing, not a reversion
+to "open" - defaulting to "open" would let a disputing underwriter dispute
+a correct trigger and win by outlasting adjudication for free, the same
+anti-stalling fix applied to this account's Waypoint and Tote after their
+own steward review.
+
+Once settled, `claim_coverage(product_id)` pays each policyholder their
+own purchased amount, and `withdraw_underwriting(product_id)` pays each
+underwriter their stake's pro-rata share of whatever capital wasn't
+claimed plus the collected premium pool - at a trigger, or at `expire()`
+if the window closed with no trigger ever confirmed.
+
+**Payouts go through `gl.get_contract_at(recipient).emit_transfer(value=
+amount)`, called with no method name - not `gl.evm.contract_interface`
+("Payee").** The two are not interchangeable: `gl.evm.contract_interface`
+compiles to an `EthSend` message, a bridge to a *separate external EVM
+chain* - confirmed by reading GenVM's own source
+(`genlayer/_internal/on_chain/eth.py`) - which is the right tool for
+paying out on a different chain and the wrong one here, since this
+contract only ever moves the same native GEN it already pooled via
+`gl.message.value`. `.emit_transfer()` on a `get_contract_at()` proxy with
+no method name compiles to `PostMessage` instead, GenVM's own
+same-consensus transfer, which the SDK documents as working for an
+address with no contract deployed at it precisely because it dispatches
+no method. This account's earlier `Payee` fix (on Waypoint, Tote, Salvage
+Arbiter, AgentEscrow) was itself a misdiagnosis of an EOA-payout bug that
+was really about calling a *named* method on a `get_contract_at()` proxy
+instead of its dedicated `.emit_transfer()` - Indemnity is built on the
+corrected understanding from day one.
+
+## Live deployment
+Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
+- **Contract:** [`0x95d24D7d3430A412667D7732305c5f26765583Cb`](https://explorer-bradbury.genlayer.com/address/0x95d24D7d3430A412667D7732305c5f26765583Cb)
+- Verified via 38 passing direct-mode tests (`python -m pytest tests/direct/`),
+  covering product creation and its full validation surface, underwriting
+  (accumulation, the target cap, the close-time cutoff), coverage purchases
+  (exact-premium enforcement, the can't-oversell-past-underwritten-capital
+  guard), the consensus trigger check (quorum, outlier tolerance, the
+  comparison itself - including a real double-scaling bug this suite
+  caught before deploy), the full dispute lifecycle (challenge, uphold,
+  overturn, permissionless resolution, the prompt's untrusted-input
+  quarantine, and the stale-dispute anti-stalling fallback), `expire()`,
+  and both claim paths (coverage and pro-rata underwriting withdrawal,
+  including the double-claim and nothing-to-claim guards).
+- Not yet live-chain-reconfirmed with a real payable transaction cycle -
+  the bare `genlayer write` CLI has no flag for attaching native value to
+  a call. A ready-to-run script for that (`genlayer-js`, real `value:`)
+  follows the same pattern as the sibling projects' `verify-payee-live.mjs`.
+
+## What's included
+- `contracts/indemnity.py` — the Indemnity Intelligent Contract
+- `tests/direct/test_indemnity.py` — direct-mode tests (in-memory, mocked web/LLM)
+- Configuration file template and deployment scripts
+
+No frontend yet - a UI mockup exists as a design artifact, not built into code this session.
+
+## Requirements
+- Python >= 3.12
+- [GenLayer CLI](https://github.com/genlayerlabs/genlayer-cli) globally installed: `npm install -g genlayer`
+- GenLayer Studio (for integration tests and deployment): Install from [Docs](https://docs.genlayer.com/developers/intelligent-contracts/tooling-setup#using-the-genlayer-studio) or use the hosted [GenLayer Studio](https://studio.genlayer.com/)
+
+## Project Structure
+
+```
+contracts/              # Python intelligent contracts
+  indemnity.py             # Indemnity
+tests/
+  direct/                 # Fast in-memory tests (no Studio required)
+    test_indemnity.py
+deploy/                 # TypeScript deployment scripts
+gltest.config.yaml       # Test runner network configuration
+pyproject.toml           # Python/pytest configuration
+```
+
+## Quick Start
+
+### 1. Set up Python environment
+
+```shell
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Lint the contract
+
+```shell
+genvm-lint check contracts/indemnity.py
+```
+
+### 3. Run direct mode tests
+
+```shell
+python -m pytest tests/direct/ -v
+```
+
+Use `python -m pytest`, not bare `pytest` - depending on your installed
+pytest version, running the bare command can fail to put the project
+root on `sys.path`, breaking test discovery with
+`ModuleNotFoundError: No module named 'tests'`.
+
+### 4. Deploy the contract
+
+1. Choose your network: `genlayer network`
+2. Deploy: `genlayer deploy` (runs the script in `/deploy/deployScript.ts`)
+
+## How Indemnity Works
+
+1. **`create_product(...)`** — opens a product: 2-5 sources, a JSON path,
+   a comparison operator and scaled threshold, a tolerance and agreement
+   count for the consensus check, a premium rate, an underwriting target,
+   and when underwriting/buying closes and the product expires.
+2. **`underwrite(product_id)`** — payable. Anyone can back a product up to
+   its target before `close_time`.
+3. **`buy_coverage(product_id, amount)`** — payable with the exact premium
+   for the requested coverage amount, capped at underwritten capital.
+4. **`check_trigger(product_id)`** — permissionless, deterministic once
+   `close_time` passes. Quorum-not-reached or comparison-not-met reverts
+   cleanly for a retry.
+5. **`challenge(product_id, reason)`** — an underwriter in the product,
+   within a 10-minute window after a trigger.
+6. **`resolve_dispute(product_id)`** — permissionless. Re-fetches every
+   source and weighs the objection via `gl.nondet.exec_prompt`; uphold
+   keeps the trigger, overturn reverts to `open`.
+7. **`resolve_stale_dispute(product_id)`** — permissionless backstop 24
+   hours past an unresolved dispute: settles at the pre-dispute trigger.
+8. **`expire(product_id)`** — permissionless, once `expiry` passes with no
+   trigger ever confirmed.
+9. **`claim_coverage(product_id)`** — a policyholder claims their own
+   purchased coverage once a trigger has settled past its challenge window.
+10. **`withdraw_underwriting(product_id)`** — an underwriter claims their
+    stake's pro-rata share of unclaimed capital plus the premium pool,
+    once triggered-and-settled or expired.
+11. **`get_product`** / **`get_all_product_ids`** / **`get_sources`** /
+    **`get_underwriting`** / **`get_coverage`** / **`has_withdrawn`** /
+    **`has_claimed_coverage`** / **`get_underwriters`** /
+    **`get_policyholders`** — read back a product's full state, its
+    sources, and a wallet's position.
+
+## Testing Strategy
+
+| Test Type | Command | Speed | Requires Studio |
+|-----------|---------|-------|-----------------|
+| **Lint** | `genvm-lint check contracts/indemnity.py` | ~250ms | No |
+| **Direct** | `python -m pytest tests/direct/ -v` | ~ms/test | No |
+
+## Community
+- **[Discord](https://discord.gg/8Jm4v89VAu)**: Discussions, support, and announcements
+- **[Telegram](https://t.me/genlayer)**: Informal chats and quick updates
+
+## Documentation
+For detailed information, see our [documentation](https://docs.genlayer.com/).
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
