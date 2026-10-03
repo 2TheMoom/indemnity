@@ -7,3 +7,5 @@ node_modules/
 frontend/.next/
 frontend/.vercel/
 .env
+frontend/.env*
+!frontend/.env.example

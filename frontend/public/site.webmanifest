@@ -1,0 +1,16 @@
+{
+  "name": "Indemnity",
+  "short_name": "Indemnity",
+  "description": "A parametric insurance exchange on GenLayer - independent sources settle a trigger automatically, no claims process.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14181D",
+  "theme_color": "#14181D",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

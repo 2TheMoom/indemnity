@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+/* Typography: --font-head / --font-body / --font-mono are set by
+   next/font/google in layout.tsx (Source Serif 4 / IBM Plex Sans /
+   IBM Plex Mono) via the "variable" option. */
+
+@custom-variant dark (&:is(.dark *));
+
+/* Indemnity - cool slate ground, indigo for underwriting/protection,
+   amber carried over as the shared GenLayer-family accent (also used
+   on Covenant, Indemnity's sibling product). Deliberately distinct
+   from Covenant's warm brown-black "grant ledger" palette - same
+   family, different product. */
+:root {
+  --background: #14181d;
+  --foreground: #eceff2;
+
+  --card: #1c2127;
+  --card-foreground: #eceff2;
+  --popover: #1c2127;
+  --popover-foreground: #eceff2;
+
+  --primary: #5b7fc7;
+  --primary-foreground: #14181d;
+
+  --secondary: #1c2127;
+  --secondary-foreground: #eceff2;
+
+  --muted: #1c2127;
+  --muted-foreground: #aeb8c2;
+
+  --accent: #5b7fc7;
+  --accent-foreground: #14181d;
+
+  /* Extra semantic tones beyond the shadcn set */
+  --indigo: #5b7fc7;
+  --indigo-bright: #7b98da;
+  --amber: #d4914a;
+  --amber-bright: #e8b479;
+  --rust: #c17a4a;
+  --slate-dim: #7d93b5;
+  --ink-faint: #5a6472;
+
+  --destructive: #c17a4a;
+  --destructive-foreground: #14181d;
+
+  --border: #22272e;
+  --border-bright: #3a4453;
+  --input: #1c2127;
+  --ring: #5b7fc7;
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: #14181d;
+  --foreground: #eceff2;
+  --card: #1c2127;
+  --card-foreground: #eceff2;
+  --popover: #1c2127;
+  --popover-foreground: #eceff2;
+  --primary: #5b7fc7;
+  --primary-foreground: #14181d;
+  --secondary: #1c2127;
+  --secondary-foreground: #eceff2;
+  --muted: #1c2127;
+  --muted-foreground: #aeb8c2;
+  --accent: #5b7fc7;
+  --accent-foreground: #14181d;
+  --destructive: #c17a4a;
+  --destructive-foreground: #14181d;
+  --border: #22272e;
+  --input: #1c2127;
+  --ring: #5b7fc7;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply text-foreground;
+    font-family: var(--font-body), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .font-head {
+    font-family: var(--font-head), serif;
+  }
+  .font-mono {
+    font-family: var(--font-mono), 'Courier New', monospace;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono), monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--slate-dim);
+  }
+
+  /* ---------- buttons ---------- */
+  .btn-indm {
+    font-family: var(--font-body), sans-serif;
+    font-weight: 600;
+    font-size: 0.84rem;
+    padding: 12px 22px;
+    border-radius: 23px;
+    border: 1px solid var(--border-bright);
+    background: transparent;
+    color: var(--foreground);
+    cursor: pointer;
+  }
+  .btn-indm.solid { background: var(--indigo); color: var(--primary-foreground); border-color: var(--indigo); font-weight: 600; }
+  .btn-indm.ghost { border-color: var(--border-bright); color: var(--muted-foreground); }
+  .btn-indm.danger { border-color: var(--rust); color: var(--rust); }
+  .btn-indm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ---------- status pill ---------- */
+  .status-pill {
+    font-family: var(--font-mono), monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--indigo);
+    color: var(--indigo-bright);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+  }
+  .status-pill.triggered { border-color: var(--amber); color: var(--amber-bright); }
+  .status-pill.disputed { border-color: var(--rust); color: var(--rust); }
+  .status-pill.expired { border-color: var(--border-bright); color: var(--ink-faint); }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* ---------- progress / underwriting bar ---------- */
+  .uw-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .uw-bar .fill { height: 100%; background: var(--indigo); }
+  .uw-bar .fill.triggered { background: var(--amber); }
+
+  /* ---------- trigger source row ---------- */
+  .source-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.86rem;
+  }
+  .source-row:last-child { border-bottom: none; }
+  .source-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--indigo); flex-shrink: 0; }
+
+  /* ---------- misc chrome ---------- */
+  .field-note {
+    font-family: var(--font-body), sans-serif;
+    font-size: 0.92rem;
+    color: var(--foreground);
+    line-height: 1.65;
+    background: var(--card);
+    border-left: 2px solid var(--indigo);
+    padding: 16px 18px;
+    border-radius: 0 8px 8px 0;
+  }
+  .kv-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    font-family: var(--font-mono), monospace;
+    font-size: 0.8rem;
+    border-bottom: 1px dotted var(--border);
+    padding-bottom: 10px;
+  }
+  .kv-row .k { color: var(--ink-faint); letter-spacing: 0.04em; }
+  .kv-row .v { color: var(--foreground); text-align: right; word-break: break-word; }
+  .kv-row .v.indigo { color: var(--indigo-bright); }
+  .kv-row .v.amount { color: var(--amber-bright); font-weight: 600; }
+
+  .network-chip {
+    font-family: var(--font-mono), monospace;
+    font-size: 0.72rem;
+    color: var(--muted-foreground);
+    display: flex; align-items: center; gap: 7px;
+  }
+  .network-chip .led { width: 7px; height: 7px; border-radius: 50%; background: var(--indigo); box-shadow: 0 0 6px var(--indigo); }
+
+  .wallet-chip {
+    font-family: var(--font-body), sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--foreground);
+    border: 1px solid var(--border-bright);
+    border-radius: 999px;
+    padding: 9px 16px 9px 13px;
+    background: var(--card);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .wallet-chip:hover { border-color: var(--indigo); }
+  .wallet-chip:disabled { opacity: 0.6; cursor: default; }
+  .wallet-chip .mark-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--indigo); box-shadow: 0 0 5px var(--indigo); }
+  .wallet-chip .mark-dot.off { background: var(--ink-faint); box-shadow: none; }
+}
+
+html {
+  min-height: 100vh !important;
+  height: 100%;
+  scroll-behavior: smooth;
+  background: #14181d !important;
+  background-attachment: fixed !important;
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh !important;
+  overscroll-behavior: none;
+}
