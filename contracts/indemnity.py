@@ -23,11 +23,13 @@ REQUEST_HEADERS = {
 }
 
 
-def _pay(recipient: Address, value: u256) -> None:
-    """No method name - compiles to PostMessage, GenVM's native transfer,
-    not gl.evm.contract_interface (EthSend, an external bridge, wrong for
-    this contract's own pooled GEN)."""
-    gl.get_contract_at(recipient).emit_transfer(value=value)
+@gl.evm.contract_interface
+class Payee:
+    class View:
+        pass
+
+    class Write:
+        pass
 
 
 @allow_storage
@@ -56,19 +58,7 @@ class Product:
 
 
 class Indemnity(gl.Contract):
-    """Parametric insurance. A trigger: 2-5 sources, a JSON path per
-    source (Concord's N-of-M equivalence oracle), a comparison against a
-    threshold. Underwriters stake GEN up to `target`; policyholders pay a
-    premium for coverage capped at underwritten capital. No LLM on the
-    common path.
-
-    check_trigger(), once ctime passes, runs consensus; a quorum or
-    comparison miss reverts, retriable. An underwriter gets
-    CHALLENGE_WINDOW_SECONDS to dispute; a stale dispute falls back to the
-    pre-dispute trigger, not "open" - same anti-stalling fix as
-    Waypoint/Tote. Payouts use gl.get_contract_at(...).emit_transfer()
-    (_pay()), not gl.evm.contract_interface (an external EVM bridge).
-    """
+    """Parametric insurance - see README for mechanism and security model."""
 
     products: TreeMap[str, Product]
     pids: DynArray[str]
@@ -79,6 +69,8 @@ class Indemnity(gl.Contract):
     c_amount: TreeMap[str, u256]
     c_list: TreeMap[str, DynArray[Address]]
     c_claimed: TreeMap[str, bool]
+    pending_payouts: TreeMap[str, u256]
+    pending_floor: TreeMap[str, u256]
 
     def __init__(self):
         pass
@@ -405,8 +397,9 @@ class Indemnity(gl.Contract):
         amount = self.c_amount.get(key, u256(0))
         self._bad(amount == 0, "no coverage to claim")
 
-        _pay(sender, amount)
         self.c_claimed[key] = True
+        self._mark(key, sender, amount)
+        Payee(sender).emit_transfer(value=amount)
 
     @gl.public.write
     def withdraw_underwriting(self, product_id: str) -> None:
@@ -425,9 +418,32 @@ class Indemnity(gl.Contract):
         pool = leftover + p.ppool
         payout = (stake * pool) // p.uw
 
-        if payout > 0:
-            _pay(sender, payout)
         self.u_claimed[key] = True
+        if payout > 0:
+            self._mark(key, sender, payout)
+            Payee(sender).emit_transfer(value=payout)
+
+    def _mark(self, key: str, r: Address, amt: u256) -> None:
+        self.pending_payouts[key] = amt
+        self.pending_floor[key] = Payee(r).balance
+
+    def _retry(self, key: str, r: Address) -> None:
+        amt = self.pending_payouts.get(key, u256(0))
+        self._bad(amt == 0, "No pending payout")
+        if Payee(r).balance >= self.pending_floor.get(key, u256(0)) + amt:
+            self.pending_payouts[key] = u256(0)
+            self._bad(True, "Payout already delivered")
+        Payee(r).emit_transfer(value=amt)
+
+    @gl.public.write
+    def retry_coverage_claim(self, product_id: str, wallet: str) -> None:
+        w = Address(wallet)
+        self._retry(self._ckey(product_id, w), w)
+
+    @gl.public.write
+    def retry_underwriting_withdrawal(self, product_id: str, wallet: str) -> None:
+        w = Address(wallet)
+        self._retry(self._ukey(product_id, w), w)
 
     @gl.public.view
     def get_product(self, product_id: str) -> dict:
