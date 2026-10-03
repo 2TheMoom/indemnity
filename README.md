@@ -56,8 +56,9 @@ corrected understanding from day one.
 
 ## Live deployment
 Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0x95d24D7d3430A412667D7732305c5f26765583Cb`](https://explorer-bradbury.genlayer.com/address/0x95d24D7d3430A412667D7732305c5f26765583Cb)
-- Verified via 38 passing direct-mode tests (`python -m pytest tests/direct/`),
+- **Contract:** [`0x08E74A12aB7328fF26622A6Ad6080f9c0a991FEe`](https://explorer-bradbury.genlayer.com/address/0x08E74A12aB7328fF26622A6Ad6080f9c0a991FEe)
+- **Frontend:** https://indemnity-frontend.vercel.app
+- Verified via 44 passing direct-mode tests (`python -m pytest tests/direct/`),
   covering product creation and its full validation surface, underwriting
   (accumulation, the target cap, the close-time cutoff), coverage purchases
   (exact-premium enforcement, the can't-oversell-past-underwritten-capital
@@ -66,12 +67,15 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   caught before deploy), the full dispute lifecycle (challenge, uphold,
   overturn, permissionless resolution, the prompt's untrusted-input
   quarantine, and the stale-dispute anti-stalling fallback), `expire()`,
-  and both claim paths (coverage and pro-rata underwriting withdrawal,
-  including the double-claim and nothing-to-claim guards).
-- Not yet live-chain-reconfirmed with a real payable transaction cycle -
-  the bare `genlayer write` CLI has no flag for attaching native value to
-  a call. A ready-to-run script for that (`genlayer-js`, real `value:`)
-  follows the same pattern as the sibling projects' `verify-payee-live.mjs`.
+  both claim paths (coverage and pro-rata underwriting withdrawal,
+  including the double-claim and nothing-to-claim guards), and the
+  balance-floor-checked retry on both payout sites.
+- Payouts go through `Payee`/`gl.evm.contract_interface`, not
+  `gl.get_contract_at()` - the latter is an internal GenVM message with
+  nowhere valid to land at a plain EOA wallet. Live-verified with a real
+  `create_product` write via the bare `genlayer write` CLI (no `value:`
+  attached, since that call isn't payable) - read back via `get_product`
+  and every field matched exactly.
 
 ## What's included
 - `contracts/indemnity.py` — the Indemnity Intelligent Contract
