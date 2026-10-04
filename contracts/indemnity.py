@@ -8,6 +8,7 @@ from genlayer import *
 
 CHALLENGE_WINDOW_SECONDS = 600
 RECOVERY_TIMEOUT_SECONDS = 86400
+MAX_RETRIES = 3
 MIN_SOURCES = 2
 MAX_SOURCES = 5
 MAX_TOLERANCE_BPS = 10_000
@@ -71,6 +72,7 @@ class Indemnity(gl.Contract):
     c_claimed: TreeMap[str, bool]
     pending_payouts: TreeMap[str, u256]
     pending_floor: TreeMap[str, u256]
+    retry_count: TreeMap[str, u256]
 
     def __init__(self):
         pass
@@ -432,7 +434,10 @@ class Indemnity(gl.Contract):
         self._bad(amt == 0, "No pending payout")
         if Payee(r).balance >= self.pending_floor.get(key, u256(0)) + amt:
             self.pending_payouts[key] = u256(0)
-            self._bad(True, "Payout already delivered")
+            return
+        count = self.retry_count.get(key, u256(0))
+        self._bad(count >= MAX_RETRIES, f"Retry limit ({MAX_RETRIES}) reached - needs manual review")
+        self.retry_count[key] = count + 1
         Payee(r).emit_transfer(value=amt)
 
     @gl.public.write

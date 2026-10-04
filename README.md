@@ -36,27 +36,34 @@ underwriter their stake's pro-rata share of whatever capital wasn't
 claimed plus the collected premium pool - at a trigger, or at `expire()`
 if the window closed with no trigger ever confirmed.
 
-**Payouts go through `gl.get_contract_at(recipient).emit_transfer(value=
-amount)`, called with no method name - not `gl.evm.contract_interface`
-("Payee").** The two are not interchangeable: `gl.evm.contract_interface`
-compiles to an `EthSend` message, a bridge to a *separate external EVM
-chain* - confirmed by reading GenVM's own source
-(`genlayer/_internal/on_chain/eth.py`) - which is the right tool for
-paying out on a different chain and the wrong one here, since this
-contract only ever moves the same native GEN it already pooled via
-`gl.message.value`. `.emit_transfer()` on a `get_contract_at()` proxy with
-no method name compiles to `PostMessage` instead, GenVM's own
-same-consensus transfer, which the SDK documents as working for an
-address with no contract deployed at it precisely because it dispatches
-no method. This account's earlier `Payee` fix (on Waypoint, Tote, Salvage
-Arbiter, AgentEscrow) was itself a misdiagnosis of an EOA-payout bug that
-was really about calling a *named* method on a `get_contract_at()` proxy
-instead of its dedicated `.emit_transfer()` - Indemnity is built on the
-corrected understanding from day one.
+**Payouts go through `Payee`/`gl.evm.contract_interface`
+(`Payee(recipient).emit_transfer(value=amount)`), not
+`gl.get_contract_at()`.** `gl.get_contract_at()` is GenVM's internal
+Intelligent-Contract-to-Intelligent-Contract dispatch - there's nowhere
+for it to land at a plain EOA wallet, which is what every policyholder
+and underwriter here is. `gl.evm.contract_interface` is the documented
+chain-layer path for moving value to an arbitrary address, confirmed
+against GenLayer's own current docs and consistent with this account's
+Waypoint/Tote/Salvage Arbiter/AgentEscrow fix.
+
+**Fund-safety fix (2026-10-05).** The `pending_payouts`/`pending_floor`
+retry mechanism below had two real bugs, the same ones a steward caught
+on Tote and Waypoint's resubmissions: (1) the "already delivered" branch
+cleared `pending_payouts` and then raised - raising reverts the *entire*
+call, so that clear never actually persisted, leaving the exact same
+balance check exploitable forever; fixed by returning normally on that
+path instead of raising. (2) the balance check alone has no cap - if the
+recipient's balance later drops back below the floor (they spend or
+transfer funds), the same "not yet delivered" branch fires again,
+unboundedly; fixed with a `retry_count` map and a fixed `MAX_RETRIES = 3`,
+checked before any resend. `test_retry_*_clears_cleanly_once_balance_
+confirms_delivery` and `test_retry_*_bounded_by_max_retries` cover both
+fixes directly. 46 tests pass, lint clean, 19,850 bytes. Redeployed:
+`0x34af8351543874Ec973316322556eB6552e63a92`.
 
 ## Live deployment
 Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0x08E74A12aB7328fF26622A6Ad6080f9c0a991FEe`](https://explorer-bradbury.genlayer.com/address/0x08E74A12aB7328fF26622A6Ad6080f9c0a991FEe)
+- **Contract:** [`0x34af8351543874Ec973316322556eB6552e63a92`](https://explorer-bradbury.genlayer.com/address/0x34af8351543874Ec973316322556eB6552e63a92)
 - **Frontend:** https://indemnity-frontend.vercel.app
 - Verified via 44 passing direct-mode tests (`python -m pytest tests/direct/`),
   covering product creation and its full validation surface, underwriting

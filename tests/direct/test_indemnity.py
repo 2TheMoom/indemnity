@@ -537,13 +537,15 @@ def test_retry_coverage_claim_without_a_pending_payout_fails(direct_vm, direct_d
         contract.retry_coverage_claim("p-1", "0x" + direct_bob.hex())
 
 
-def test_retry_coverage_claim_blocked_once_balance_confirms_delivery(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
-    """The real bug a steward caught on Tote/Waypoint: pending_payouts
-    alone never proved delivery, so a policyholder whose claim actually
-    succeeded could call retry forever and drain funds owed to other
-    policyholders/underwriters. Once the recipient's own balance shows
-    the payout already landed, retry must refuse to re-send it - and
-    clear the record so it can't even be asked again."""
+def test_retry_coverage_claim_clears_cleanly_once_balance_confirms_delivery(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
+    """Two real bugs a steward caught on Tote/Waypoint, both apply here
+    too: (1) the old "already delivered" path cleared pending_payouts
+    then raised - raising reverts the whole call, so the clear never
+    actually persisted and the same balance check fired forever. Must
+    return normally instead so the clear sticks. (2) a balance-only check
+    with no cap stays exploitable if the recipient's balance later drops
+    back below the floor (they spend or transfer funds) - a later drop
+    must NOT reopen retry eligibility."""
     contract = direct_deploy(CONTRACT)
     direct_vm.warp(T0)
     _create(direct_vm, contract, direct_alice)
@@ -556,11 +558,33 @@ def test_retry_coverage_claim_blocked_once_balance_confirms_delivery(direct_vm, 
     contract.claim_coverage("p-1")
 
     direct_vm.deal(direct_charlie, 10**18)  # simulate the payout having actually landed
-    with direct_vm.expect_revert("already delivered"):
-        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())
+    contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # clears cleanly, no revert
 
     with direct_vm.expect_revert("No pending payout"):
         contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # cleared, not just blocked once
+
+    direct_vm.deal(direct_charlie, -(10**18))  # recipient spends it back down
+    with direct_vm.expect_revert("No pending payout"):
+        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # still cleared
+
+
+def test_retry_coverage_claim_bounded_by_max_retries(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.warp(T0)
+    _create(direct_vm, contract, direct_alice)
+    _underwrite(direct_vm, contract, direct_bob)
+    _buy(direct_vm, contract, direct_charlie, amount=1000)
+    _to_triggered(direct_vm, contract)
+
+    direct_vm.warp(datetime.fromtimestamp(CLOSE_TIME + CHALLENGE_WINDOW_SECONDS + 1, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    direct_vm.sender = direct_charlie
+    contract.claim_coverage("p-1")
+
+    for _ in range(3):  # MAX_RETRIES
+        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())
+
+    with direct_vm.expect_revert("Retry limit"):
+        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())
 
 
 def test_withdraw_underwriting_after_expiry_pays_full_pool_pro_rata(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
@@ -627,7 +651,7 @@ def test_retry_underwriting_withdrawal_without_a_pending_payout_fails(direct_vm,
         contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
 
 
-def test_retry_underwriting_withdrawal_blocked_once_balance_confirms_delivery(direct_vm, direct_deploy, direct_alice, direct_bob):
+def test_retry_underwriting_withdrawal_clears_cleanly_once_balance_confirms_delivery(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract = direct_deploy(CONTRACT)
     direct_vm.warp(T0)
     _create(direct_vm, contract, direct_alice)
@@ -639,11 +663,32 @@ def test_retry_underwriting_withdrawal_blocked_once_balance_confirms_delivery(di
     contract.withdraw_underwriting("p-1")
 
     direct_vm.deal(direct_bob, 10**18)  # simulate the payout having actually landed
-    with direct_vm.expect_revert("already delivered"):
-        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
+    contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # clears cleanly, no revert
 
     with direct_vm.expect_revert("No pending payout"):
         contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # cleared, not just blocked once
+
+    direct_vm.deal(direct_bob, -(10**18))  # recipient spends it back down
+    with direct_vm.expect_revert("No pending payout"):
+        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # still cleared
+
+
+def test_retry_underwriting_withdrawal_bounded_by_max_retries(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.warp(T0)
+    _create(direct_vm, contract, direct_alice)
+    _underwrite(direct_vm, contract, direct_bob)
+    direct_vm.warp(datetime.fromtimestamp(EXPIRY, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    contract.expire("p-1")
+
+    direct_vm.sender = direct_bob
+    contract.withdraw_underwriting("p-1")
+
+    for _ in range(3):  # MAX_RETRIES
+        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
+
+    with direct_vm.expect_revert("Retry limit"):
+        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
 
 
 # ---------------------------------------------------------------------------
