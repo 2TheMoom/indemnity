@@ -132,6 +132,17 @@ def test_create_product_non_https_source_fails(direct_vm, direct_deploy, direct_
         _create(direct_vm, contract, direct_alice, sources=[SRC_A, "http://b.example.com"])
 
 
+def test_create_product_duplicate_host_fails(direct_vm, direct_deploy, direct_alice):
+    """A product creator supplying two URLs on the same host is not giving
+    N independent sources, it is one source wearing two URLs - the
+    threshold-count cross-check means nothing if the "independent"
+    sources can all be served by the same party."""
+    contract = direct_deploy(CONTRACT)
+    direct_vm.warp(T0)
+    with direct_vm.expect_revert("distinct hosts"):
+        _create(direct_vm, contract, direct_alice, sources=[SRC_A, "https://a.example.com/other", SRC_C])
+
+
 def test_create_product_threshold_count_bounds(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.warp(T0)
@@ -139,6 +150,21 @@ def test_create_product_threshold_count_bounds(direct_vm, direct_deploy, direct_
         _create(direct_vm, contract, direct_alice, threshold_count=1)
     with direct_vm.expect_revert("threshold_count must be 2-"):
         _create(direct_vm, contract, direct_alice, threshold_count=4)
+
+
+def test_create_product_threshold_count_must_be_majority(direct_vm, direct_deploy, direct_alice):
+    """threshold_count used to allow as little as 2-of-5 agreeing sources
+    to settle a trigger - an attacker controlling just 2 sources could win
+    even against 3 genuinely disagreeing honest ones. It must now be a
+    strict majority of the total source count."""
+    contract = direct_deploy(CONTRACT)
+    direct_vm.warp(T0)
+    sources = [SRC_A, SRC_B, SRC_C, "https://d.example.com/data", "https://e.example.com/data"]
+    with direct_vm.expect_revert("threshold_count must be 3-5"):
+        _create(direct_vm, contract, direct_alice, sources=sources, threshold_count=2)
+
+    _create(direct_vm, contract, direct_alice, sources=sources, threshold_count=3)
+    assert contract.get_product("p-1")["threshold_count"] == 3
 
 
 def test_create_product_bad_comparison_op_fails(direct_vm, direct_deploy, direct_alice):
@@ -525,7 +551,7 @@ def test_retry_coverage_claim_happy_path_does_not_revert(direct_vm, direct_deplo
     direct_vm.sender = direct_charlie
     contract.claim_coverage("p-1")
 
-    contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # must not revert - payout still on record
+    contract.retry_coverage_claim("p-1")  # must not revert - payout still on record
 
 
 def test_retry_coverage_claim_without_a_pending_payout_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
@@ -533,19 +559,17 @@ def test_retry_coverage_claim_without_a_pending_payout_fails(direct_vm, direct_d
     direct_vm.warp(T0)
     _create(direct_vm, contract, direct_alice)
 
+    direct_vm.sender = direct_bob
     with direct_vm.expect_revert("No pending payout"):
-        contract.retry_coverage_claim("p-1", "0x" + direct_bob.hex())
+        contract.retry_coverage_claim("p-1")
 
 
-def test_retry_coverage_claim_clears_cleanly_once_balance_confirms_delivery(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
-    """Two real bugs a steward caught on Tote/Waypoint, both apply here
-    too: (1) the old "already delivered" path cleared pending_payouts
-    then raised - raising reverts the whole call, so the clear never
-    actually persisted and the same balance check fired forever. Must
-    return normally instead so the clear sticks. (2) a balance-only check
-    with no cap stays exploitable if the recipient's balance later drops
-    back below the floor (they spend or transfer funds) - a later drop
-    must NOT reopen retry eligibility."""
+def test_retry_coverage_claim_ignores_recipient_balance(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
+    """A steward-caught design flaw: using the recipient's wallet balance
+    as proof of delivery can both duplicate an already-delivered transfer
+    and silently "clear" a payout that never actually landed. Retry is now
+    deliberately blind to balance - it stays on record and keeps counting
+    toward MAX_RETRIES no matter what the recipient's wallet holds."""
     contract = direct_deploy(CONTRACT)
     direct_vm.warp(T0)
     _create(direct_vm, contract, direct_alice)
@@ -557,15 +581,27 @@ def test_retry_coverage_claim_clears_cleanly_once_balance_confirms_delivery(dire
     direct_vm.sender = direct_charlie
     contract.claim_coverage("p-1")
 
-    direct_vm.deal(direct_charlie, 10**18)  # simulate the payout having actually landed
-    contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # clears cleanly, no revert
+    direct_vm.deal(direct_charlie, 10**18)  # a huge unrelated balance bump
+    contract.retry_coverage_claim("p-1")  # still retries, not silently treated as "delivered"
 
-    with direct_vm.expect_revert("No pending payout"):
-        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # cleared, not just blocked once
+    assert contract.get_pending_payout(f"p-1_c_0x{direct_charlie.hex()}") == 1000
 
-    direct_vm.deal(direct_charlie, -(10**18))  # recipient spends it back down
+
+def test_retry_coverage_claim_by_non_claimant_fails(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.warp(T0)
+    _create(direct_vm, contract, direct_alice)
+    _underwrite(direct_vm, contract, direct_bob)
+    _buy(direct_vm, contract, direct_charlie, amount=1000)
+    _to_triggered(direct_vm, contract)
+
+    direct_vm.warp(datetime.fromtimestamp(CLOSE_TIME + CHALLENGE_WINDOW_SECONDS + 1, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    direct_vm.sender = direct_charlie
+    contract.claim_coverage("p-1")
+
+    direct_vm.sender = direct_bob  # not the claimant
     with direct_vm.expect_revert("No pending payout"):
-        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())  # still cleared
+        contract.retry_coverage_claim("p-1")
 
 
 def test_retry_coverage_claim_bounded_by_max_retries(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
@@ -581,10 +617,10 @@ def test_retry_coverage_claim_bounded_by_max_retries(direct_vm, direct_deploy, d
     contract.claim_coverage("p-1")
 
     for _ in range(3):  # MAX_RETRIES
-        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())
+        contract.retry_coverage_claim("p-1")
 
     with direct_vm.expect_revert("Retry limit"):
-        contract.retry_coverage_claim("p-1", "0x" + direct_charlie.hex())
+        contract.retry_coverage_claim("p-1")
 
 
 def test_withdraw_underwriting_after_expiry_pays_full_pool_pro_rata(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
@@ -639,7 +675,7 @@ def test_retry_underwriting_withdrawal_happy_path_does_not_revert(direct_vm, dir
     direct_vm.sender = direct_bob
     contract.withdraw_underwriting("p-1")
 
-    contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # must not revert
+    contract.retry_underwriting_withdrawal("p-1")  # must not revert
 
 
 def test_retry_underwriting_withdrawal_without_a_pending_payout_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
@@ -647,11 +683,12 @@ def test_retry_underwriting_withdrawal_without_a_pending_payout_fails(direct_vm,
     direct_vm.warp(T0)
     _create(direct_vm, contract, direct_alice)
 
+    direct_vm.sender = direct_bob
     with direct_vm.expect_revert("No pending payout"):
-        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
+        contract.retry_underwriting_withdrawal("p-1")
 
 
-def test_retry_underwriting_withdrawal_clears_cleanly_once_balance_confirms_delivery(direct_vm, direct_deploy, direct_alice, direct_bob):
+def test_retry_underwriting_withdrawal_ignores_recipient_balance(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract = direct_deploy(CONTRACT)
     direct_vm.warp(T0)
     _create(direct_vm, contract, direct_alice)
@@ -662,15 +699,26 @@ def test_retry_underwriting_withdrawal_clears_cleanly_once_balance_confirms_deli
     direct_vm.sender = direct_bob
     contract.withdraw_underwriting("p-1")
 
-    direct_vm.deal(direct_bob, 10**18)  # simulate the payout having actually landed
-    contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # clears cleanly, no revert
+    direct_vm.deal(direct_bob, 10**18)  # a huge unrelated balance bump
+    contract.retry_underwriting_withdrawal("p-1")  # still retries, not silently treated as "delivered"
 
-    with direct_vm.expect_revert("No pending payout"):
-        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # cleared, not just blocked once
+    assert contract.get_pending_payout(f"p-1_u_0x{direct_bob.hex()}") == 10_000
 
-    direct_vm.deal(direct_bob, -(10**18))  # recipient spends it back down
+
+def test_retry_underwriting_withdrawal_by_non_underwriter_fails(direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.warp(T0)
+    _create(direct_vm, contract, direct_alice)
+    _underwrite(direct_vm, contract, direct_bob)
+    direct_vm.warp(datetime.fromtimestamp(EXPIRY, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    contract.expire("p-1")
+
+    direct_vm.sender = direct_bob
+    contract.withdraw_underwriting("p-1")
+
+    direct_vm.sender = direct_charlie  # never underwrote
     with direct_vm.expect_revert("No pending payout"):
-        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())  # still cleared
+        contract.retry_underwriting_withdrawal("p-1")
 
 
 def test_retry_underwriting_withdrawal_bounded_by_max_retries(direct_vm, direct_deploy, direct_alice, direct_bob):
@@ -685,10 +733,10 @@ def test_retry_underwriting_withdrawal_bounded_by_max_retries(direct_vm, direct_
     contract.withdraw_underwriting("p-1")
 
     for _ in range(3):  # MAX_RETRIES
-        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
+        contract.retry_underwriting_withdrawal("p-1")
 
     with direct_vm.expect_revert("Retry limit"):
-        contract.retry_underwriting_withdrawal("p-1", "0x" + direct_bob.hex())
+        contract.retry_underwriting_withdrawal("p-1")
 
 
 # ---------------------------------------------------------------------------

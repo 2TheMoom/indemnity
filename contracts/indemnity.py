@@ -71,7 +71,6 @@ class Indemnity(gl.Contract):
     c_list: TreeMap[str, DynArray[Address]]
     c_claimed: TreeMap[str, bool]
     pending_payouts: TreeMap[str, u256]
-    pending_floor: TreeMap[str, u256]
     retry_count: TreeMap[str, u256]
 
     def __init__(self):
@@ -94,6 +93,11 @@ class Indemnity(gl.Contract):
     def _ckey(self, product_id: str, addr: Address) -> str:
         return f"{product_id}_c_{addr.as_hex}".lower()
 
+    def _host(self, url: str) -> str:
+        h = url[8:].split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        h = h.rsplit("@", 1)[-1].split(":", 1)[0]
+        return h.lower()
+
     @gl.public.write
     def create_product(
         self,
@@ -114,12 +118,17 @@ class Indemnity(gl.Contract):
         self._bad(not title, "title cannot be empty")
         self._bad(len(title) > MAX_TITLE_LEN, f"title cannot exceed {MAX_TITLE_LEN} characters")
         self._bad(not (MIN_SOURCES <= len(sources) <= MAX_SOURCES), f"need {MIN_SOURCES}-{MAX_SOURCES} sources")
+        hosts = set()
         for src in sources:
             self._bad(not src.startswith("https://"), "sources must be https://")
+            h = self._host(src)
+            self._bad(h in hosts, "sources must be from distinct hosts")
+            hosts.add(h)
         self._bad(not json_path, "json_path cannot be empty")
         self._bad(comparison_op not in OPS, f"op must be one of {tuple(OPS)}")
         self._bad(not (0 <= tolerance_bps <= MAX_TOLERANCE_BPS), f"tolerance_bps must be 0-{MAX_TOLERANCE_BPS}")
-        self._bad(not (2 <= threshold_count <= len(sources)), f"threshold_count must be 2-{len(sources)}")
+        min_count = len(sources) // 2 + 1
+        self._bad(not (min_count <= threshold_count <= len(sources)), f"threshold_count must be {min_count}-{len(sources)}")
         self._bad(not (0 < premium_bps <= MAX_PREMIUM_BPS), f"premium_bps must be 1-{MAX_PREMIUM_BPS}")
         self._bad(target <= 0, "target must be positive")
         now = self._now()
@@ -400,7 +409,7 @@ class Indemnity(gl.Contract):
         self._bad(amount == 0, "no coverage to claim")
 
         self.c_claimed[key] = True
-        self._mark(key, sender, amount)
+        self._mark(key, amount)
         Payee(sender).emit_transfer(value=amount)
 
     @gl.public.write
@@ -422,32 +431,29 @@ class Indemnity(gl.Contract):
 
         self.u_claimed[key] = True
         if payout > 0:
-            self._mark(key, sender, payout)
+            self._mark(key, payout)
             Payee(sender).emit_transfer(value=payout)
 
-    def _mark(self, key: str, r: Address, amt: u256) -> None:
+    def _mark(self, key: str, amt: u256) -> None:
         self.pending_payouts[key] = amt
-        self.pending_floor[key] = Payee(r).balance
 
     def _retry(self, key: str, r: Address) -> None:
+        self._bad(gl.message.sender_address != r, "Only the recipient may retry")
         amt = self.pending_payouts.get(key, u256(0))
         self._bad(amt == 0, "No pending payout")
-        if Payee(r).balance >= self.pending_floor.get(key, u256(0)) + amt:
-            self.pending_payouts[key] = u256(0)
-            return
         count = self.retry_count.get(key, u256(0))
-        self._bad(count >= MAX_RETRIES, f"Retry limit ({MAX_RETRIES}) reached - needs manual review")
+        self._bad(count >= MAX_RETRIES, f"Retry limit ({MAX_RETRIES}) reached")
         self.retry_count[key] = count + 1
         Payee(r).emit_transfer(value=amt)
 
     @gl.public.write
-    def retry_coverage_claim(self, product_id: str, wallet: str) -> None:
-        w = Address(wallet)
+    def retry_coverage_claim(self, product_id: str) -> None:
+        w = gl.message.sender_address
         self._retry(self._ckey(product_id, w), w)
 
     @gl.public.write
-    def retry_underwriting_withdrawal(self, product_id: str, wallet: str) -> None:
-        w = Address(wallet)
+    def retry_underwriting_withdrawal(self, product_id: str) -> None:
+        w = gl.message.sender_address
         self._retry(self._ukey(product_id, w), w)
 
     @gl.public.view
@@ -507,3 +513,7 @@ class Indemnity(gl.Contract):
     @gl.public.view
     def get_policyholders(self, product_id: str) -> list:
         return [a.as_hex for a in self.c_list.get(product_id, [])]
+
+    @gl.public.view
+    def get_pending_payout(self, key: str) -> u256:
+        return self.pending_payouts.get(key, u256(0))

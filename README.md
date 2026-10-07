@@ -61,6 +61,25 @@ confirms_delivery` and `test_retry_*_bounded_by_max_retries` cover both
 fixes directly. 46 tests pass, lint clean, 19,850 bytes. Redeployed:
 `0x34af8351543874Ec973316322556eB6552e63a92`.
 
+**Architecture fix (2026-10-07).** A steward review found the balance-
+floor retry above still unsound in both directions: a delayed balance
+update can cause a duplicate transfer, and an unrelated balance rise can
+wrongly mark a transfer "delivered" that never landed - GenVM exposes no
+other signal to confirm delivery. Replaced entirely with a blind,
+`MAX_RETRIES`-bounded retry restricted to the actual beneficiary
+(`gl.message.sender_address != recipient` reverts), with no balance
+inspection at all. Same review flagged the `sources` oracle trust
+boundary: a caller could supply every "independent" source from
+infrastructure they control, making the N-of-M consensus meaningless.
+Fixed with two structural checks in `create_product`: every source must
+resolve to a distinct hostname, and `threshold_count` must be a strict
+majority (`len(sources)//2 + 1`) rather than any fixed minimum. 50 tests
+pass, lint clean, 19,660 bytes. Redeployed:
+`0xe39051CACB7BE38f32B1C06e850A65EfDFc4581A`. The demo product was
+recreated with sources on two genuinely distinct hosts
+(`raw.githubusercontent.com` and `indemnity-frontend.vercel.app`),
+live-verified 5/5 AGREE via `get_product`/`get_sources`.
+
 ## Live deployment
 Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
 - **Contract:** [`0x34af8351543874Ec973316322556eB6552e63a92`](https://explorer-bradbury.genlayer.com/address/0x34af8351543874Ec973316322556eB6552e63a92)

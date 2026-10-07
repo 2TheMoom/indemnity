@@ -282,20 +282,20 @@ class Indemnity {
     return this.submitWrite("withdraw_underwriting", [productId], feePreset, onSubmitted);
   }
 
-  async estimateRetryCoverageClaimFees(productId: string, wallet: string, level: FeePresetLevel = "standard") {
-    return this.estimateFees("retry_coverage_claim", [productId, wallet], level);
+  async estimateRetryCoverageClaimFees(productId: string, level: FeePresetLevel = "standard") {
+    return this.estimateFees("retry_coverage_claim", [productId], level);
   }
 
-  async retryCoverageClaim(productId: string, wallet: string, feePreset?: FeePresetEstimate, onSubmitted?: (txHash: string) => void) {
-    return this.submitWrite("retry_coverage_claim", [productId, wallet], feePreset, onSubmitted);
+  async retryCoverageClaim(productId: string, feePreset?: FeePresetEstimate, onSubmitted?: (txHash: string) => void) {
+    return this.submitWrite("retry_coverage_claim", [productId], feePreset, onSubmitted);
   }
 
-  async estimateRetryUnderwritingWithdrawalFees(productId: string, wallet: string, level: FeePresetLevel = "standard") {
-    return this.estimateFees("retry_underwriting_withdrawal", [productId, wallet], level);
+  async estimateRetryUnderwritingWithdrawalFees(productId: string, level: FeePresetLevel = "standard") {
+    return this.estimateFees("retry_underwriting_withdrawal", [productId], level);
   }
 
-  async retryUnderwritingWithdrawal(productId: string, wallet: string, feePreset?: FeePresetEstimate, onSubmitted?: (txHash: string) => void) {
-    return this.submitWrite("retry_underwriting_withdrawal", [productId, wallet], feePreset, onSubmitted);
+  async retryUnderwritingWithdrawal(productId: string, feePreset?: FeePresetEstimate, onSubmitted?: (txHash: string) => void) {
+    return this.submitWrite("retry_underwriting_withdrawal", [productId], feePreset, onSubmitted);
   }
 }
 

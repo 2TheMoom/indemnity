@@ -262,18 +262,18 @@ export function useWithdrawUnderwriting() {
 }
 
 export function useRetryCoverageClaim() {
-  return useWriteAction<{ id: string; wallet: string }>(
-    (c, a, fee, cb) => c.retryCoverageClaim(a.id, a.wallet, fee, cb),
-    { title: "Retry submitted", description: "Re-checked delivery and retried if needed." },
+  return useWriteAction<{ id: string }>(
+    (c, a, fee, cb) => c.retryCoverageClaim(a.id, fee, cb),
+    { title: "Retry submitted", description: "Retried your own pending payout." },
     "Retry failed",
     (a) => a.id
   );
 }
 
 export function useRetryUnderwritingWithdrawal() {
-  return useWriteAction<{ id: string; wallet: string }>(
-    (c, a, fee, cb) => c.retryUnderwritingWithdrawal(a.id, a.wallet, fee, cb),
-    { title: "Retry submitted", description: "Re-checked delivery and retried if needed." },
+  return useWriteAction<{ id: string }>(
+    (c, a, fee, cb) => c.retryUnderwritingWithdrawal(a.id, fee, cb),
+    { title: "Retry submitted", description: "Retried your own pending payout." },
     "Retry failed",
     (a) => a.id
   );

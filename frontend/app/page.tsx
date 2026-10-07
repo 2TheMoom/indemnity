@@ -518,12 +518,12 @@ function ProductHero({ id }: { id: string }) {
       {address && (hasCoverage || hasStake) && (p.status === "triggered" || p.status === "expired") && (
         <div className="flex gap-4 mt-3 font-mono text-[0.7rem]" style={{ color: "var(--ink-faint)" }}>
           {hasCoverage && (
-            <button className="underline" disabled={retryClaim.isPending} onClick={() => address && retryClaim.run({ id, wallet: address })}>
+            <button className="underline" disabled={retryClaim.isPending} onClick={() => address && retryClaim.run({ id })}>
               Didn&apos;t receive your claim? Retry delivery
             </button>
           )}
           {hasStake && (
-            <button className="underline" disabled={retryWithdraw.isPending} onClick={() => address && retryWithdraw.run({ id, wallet: address })}>
+            <button className="underline" disabled={retryWithdraw.isPending} onClick={() => address && retryWithdraw.run({ id })}>
               Didn&apos;t receive your withdrawal? Retry delivery
             </button>
           )}
